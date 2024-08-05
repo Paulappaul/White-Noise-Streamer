@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>White Noise from WebSocket</title>
+</head>
+<body>
+    <button id="fetch">Fetch Noise</button>
+    <button id="play">Play Noise</button>
+    <button id="stop">Stop Noise</button>
+
+    <script>
+        let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        let noiseBufferArray = [];
+        let source;
+        let isPlaying = false;
+        let socket;
+
+        document.getElementById('fetch').addEventListener('click', () => {
+            if (audioContext.state === 'suspended') {
+                audioContext.resume().then(fetchNoise);
+            } else {
+                fetchNoise();
+            }
+        });
+
+        document.getElementById('play').addEventListener('click', () => {
+            if (audioContext.state === 'suspended') {
+                audioContext.resume().then(playNoise);
+            } else {
+                playNoise();
+            }
+        });
+
+        document.getElementById('stop').addEventListener('click', stopNoise);
+
+        function fetchNoise() {
+            noiseBufferArray = [];
+            socket = new WebSocket('ws://localhost:9001/fetch');
+
+            socket.binaryType = 'arraybuffer';
+
+            socket.onopen = () => {
+                console.log('WebSocket connection opened');
+                for (let i = 0; i < 469; i++) {
+                    socket.send('fetch');
+                }
+            };
+
+            socket.onmessage = (event) => {
+                let floatArray = new Float32Array(event.data);
+                let audioBuffer = audioContext.createBuffer(1, floatArray.length, audioContext.sampleRate);
+                audioBuffer.getChannelData(0).set(floatArray);
+                noiseBufferArray.push(audioBuffer);
+
+                if (noiseBufferArray.length === 469) {
+                    console.log('All buffers received and stored');
+                    //socket.close();
+                }
+            };
+
+            socket.onclose = (event) => {
+                console.log('WebSocket connection closed', event);
+            };
+
+            socket.onerror = (error) => {
+                console.error('WebSocket error', error);
+            };
+        }
+
+        function playNoise() {
+            if (isPlaying || noiseBufferArray.length === 0) return;
+            isPlaying = true;
+
+            function playBuffer(index) {
+                if (index >= noiseBufferArray.length || !isPlaying) return;
+
+                source = audioContext.createBufferSource();
+                source.buffer = noiseBufferArray[index];
+                source.connect(audioContext.destination);
+                source.onended = function() {
+                    playBuffer(index + 1);
+                }
+                source.start();
+            }
+
+            playBuffer(0);
+        }
+
+        function stopNoise() {
+            isPlaying = false;
+            if (source) {
+                source.stop();
+                source.disconnect();
+            }
+        }
+    </script>
+</body>
+</html>
